@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import subprocess
+import tempfile
+import logging
+import stat
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Submit a job to the Condor job queue')
+    
+    parser.add_argument('--script', '-s', help='The script to submit to the queue')
+    parser.add_argument('--cores', '-j', default=8, type=int, help='The number of cores to request')
+    parser.add_argument('--memory', '-m', default=8, type=int, help='The amount of memory requested in GB')
+    parser.add_argument('--interactive', '-i', action='store_true', help='Flag to indicate an interactive job')
+
+    args = parser.parse_args()
+
+    if not args.interactive and not args.script:
+        msg = 'If no script is provided then assuming an interactive job.'
+        logging.warning(msg)
+        args.interactive = True
+
+    return args
+
+
+def create_submit_script(cores, memory, interactive=False, script=None):
+    """Creates a sumbit script for Condor. 
+
+    Args:
+        cores (int): The number of cores to request for the job.
+        memory (int): The amount of memory to request for the job in GB. 
+        interactive (boolean): Should we launch an interactive job?
+        script (str): The path to the the job script to submit.
+    """
+    bin_fh, fn = tempfile.mkstemp(suffix='.sub')
+    with open(fn, 'w') as fh:
+        fh.write('#!/usr/bin/condor_submit ')
+        if interactive:
+            fh.write('-interactive')
+        fh.write('\n')
+
+        fh.write('Universe = vanilla\n')
+        if script:
+            root_fn = os.path.splitext(script)[0]
+            fh.write('executable = {}\n'.format(script))
+            fh.write('log = {}.log\n'.format(script))
+            fh.write('output = {}.stdout\n'.format(script))
+            fh.write('error = {}.stderr\n'.format(script))
+            fh.write('should_transfer_files = Yes\n')
+        fh.write('request_cpus={}\n'.format(cores))
+        fh.write('request_memory={}GB\n'.format(memory))
+        fh.write('queue\n')
+    os.close(bin_fh)
+    os.chmod(fn, stat.S_IRWXU)
+
+    return fn
+
+
+def submit_job(cores, memory, interactive=False, script=None):
+    """Submit a job to the Condor job scheduler
+    
+    Args:
+        cores (int): The number of cores to request for the job.
+        memory (int): The amount of memory to request for the job in GB. 
+        interactive (boolean): Should we launch an interactive job?
+        script (str): The path to the the job script to submit.
+    """
+    submit_script = create_submit_script(cores, memory, interactive, script)
+    subprocess.check_call(submit_script)
+    os.remove(submit_script)
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    submit_job(args.script, args.cores, args.memory)
